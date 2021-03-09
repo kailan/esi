@@ -1,0 +1,7 @@
+[package]
+name = "esi"
+version = "0.1.0"
+authors = ["Kailan Blanks <kailan@enviark.com>"]
+edition = "2018"
+
+[dependencies]

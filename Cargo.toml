@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+    "esi",
+    "esi_fastly",
+    "esi_fastly_example_app"
+]
