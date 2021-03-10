@@ -1,13 +1,12 @@
-use fastly::{Error, Request, Response};
+use fastly::{Error, Request, Response, mime};
 use esi_fastly::{process_esi};
-
-pub const BACKEND_NAME: &str = "backend";
 
 #[fastly::main]
 fn main(req: Request) -> Result<Response, Error> {
-    let mut beresp = req.send(BACKEND_NAME)?;
+    // Generate synthetic test response from "index.html" file.
+    let beresp = Response::from_body(include_str!("index.html")).with_content_type(mime::TEXT_HTML);
 
-    process_esi(&mut beresp);
+    let result = process_esi(beresp)?;
 
-    Ok(beresp)
+    Ok(result)
 }

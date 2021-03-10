@@ -1,5 +1,6 @@
-version = 1
+version = 204
 name = "esi_fastly_example_app"
 description = ""
 authors = ["kailan@enviark.com"]
 language = "rust"
+service_id = ""

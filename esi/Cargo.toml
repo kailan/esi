@@ -5,3 +5,5 @@ authors = ["Kailan Blanks <kailan@enviark.com>"]
 edition = "2018"
 
 [dependencies]
+lazy_static = "^1.4"
+fancy-regex = "^0.5"
