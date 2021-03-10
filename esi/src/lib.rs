@@ -16,23 +16,28 @@ pub struct Error {
 }
 
 impl Error {
-    fn from_message(message: String) -> Error {
+    pub fn from_message(message: &str) -> Error {
         Error {
-            message
+            message: String::from(message)
         }
     }
 }
 
-pub fn transform_esi_string(mut body: String) -> Result<String, Error> {
-    body = execute_empty_tags(body)?;
-    body = execute_content_tags(body)?;
+pub trait RequestHandler {
+    /// Returns response body
+    fn send_request(&self, url: &str) -> Result<String, Error>;
+}
+
+pub fn transform_esi_string(mut body: String, client: &impl RequestHandler) -> Result<String, Error> {
+    body = execute_empty_tags(body, client)?;
+    body = execute_content_tags(body, client)?;
 
     println!("done.");
 
     Ok(body)
 }
 
-fn execute_empty_tags(body: String) -> Result<String, Error> {
+fn execute_empty_tags(body: String, client: &impl RequestHandler) -> Result<String, Error> {
     let element = EMPTY_TAG_REGEX.find(&body).unwrap_or_default();
 
     match element {
@@ -41,16 +46,16 @@ fn execute_empty_tags(body: String) -> Result<String, Error> {
 
             let tag = EMPTY_TAG_REGEX.captures(&body).unwrap().unwrap().name("tag").unwrap().as_str();
             if tag == "include" {
-                execute_empty_tags(body.replace(element.as_str(), "<span>include</span>"))
+                execute_empty_tags(body.replace(element.as_str(), "<span>include</span>"), client)
             } else {
-                Err(Error::from_message(format!("Unsupported tag: <esi:{}>", tag)))
+                Err(Error::from_message(&format!("Unsupported tag: <esi:{}>", tag)))
             }
         },
         None => Ok(body)
     }
 }
 
-fn execute_content_tags(body: String) -> Result<String, Error> {
+fn execute_content_tags(body: String, client: &impl RequestHandler) -> Result<String, Error> {
     let element = CONTENT_TAG_REGEX.find(&body).unwrap_or_default();
 
     match element {
@@ -59,9 +64,9 @@ fn execute_content_tags(body: String) -> Result<String, Error> {
 
             let tag = CONTENT_TAG_REGEX.captures(&body).unwrap().unwrap().name("tag").unwrap().as_str();
             if tag == "remove" {
-                execute_empty_tags(body.replace(element.as_str(), ""))
+                execute_empty_tags(body.replace(element.as_str(), ""), client)
             } else {
-                Err(Error::from_message(format!("Unsupported tag: <esi:{}>", tag)))
+                Err(Error::from_message(&format!("Unsupported tag: <esi:{}>", tag)))
             }
         },
         None => Ok(body)
