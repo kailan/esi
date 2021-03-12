@@ -1,5 +1,5 @@
 use fastly::{Error, Request, Response, mime};
-use esi_fastly::{process_esi};
+use esi_fastly::process_esi;
 
 #[fastly::main]
 fn main(req: Request) -> Result<Response, Error> {

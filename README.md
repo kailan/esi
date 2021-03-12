@@ -6,7 +6,7 @@ Goal is to fully implement the [ESI Language Specification 1.0](https://www.w3.o
 
 ## Supported Tags
 
-- `<esi:include>` (no support for alt or onerror yet)
+- `<esi:include>` (+ `alt`, `onerror="continue"`)
 - `<esi:comment>`
 - `<esi:remove>`
 

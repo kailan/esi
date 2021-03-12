@@ -86,6 +86,19 @@ impl Tag {
     }
 }
 
+fn send_request(src: &String, alt: Option<&String>, client: &impl RequestHandler) -> Result<String, Error> {
+    match client.send_request(src) {
+        Ok(resp) => Ok(resp),
+        Err(err) => match alt {
+            Some(alt) => match client.send_request(alt) {
+                Ok(resp) => Ok(resp),
+                Err(_) => Err(err)
+            },
+            None => Err(err)
+        }
+    }
+}
+
 fn execute_empty_tags(mut body: String, client: &impl RequestHandler) -> Result<String, Error> {
     let element = EMPTY_TAG_REGEX.find(&body).unwrap_or_default();
 
@@ -96,17 +109,32 @@ fn execute_empty_tags(mut body: String, client: &impl RequestHandler) -> Result<
             println!("{:?}", tag);
 
             if tag.name == "include" {
-                match tag.parameters.get("src") {
-                    Some(src) => {
-                        match client.send_request(src) {
-                            Ok(resp) => {
-                                body = body.replace(element.as_str(), &resp);
-                                execute_empty_tags(body, client)
-                            },
-                            Err(err) => Err(err)
-                        }
+                let src = match tag.parameters.get("src") {
+                    Some(src) => src,
+                    None => return Err(Error::from_message("No src parameter in <esi:include>"))
+                };
+
+                let alt = tag.parameters.get("alt");
+
+                match send_request(src, alt, client) {
+                    Ok(resp) => {
+                        body = body.replace(element.as_str(), &resp);
+                        execute_empty_tags(body, client)
                     },
-                    None => Err(Error::from_message("No src parameter in <esi:include>"))
+                    Err(err) => {
+                        match tag.parameters.get("onerror") {
+                            Some(onerror) => {
+                                if onerror == "continue" {
+                                    println!("Failed to fetch {} but continued", src);
+                                    body = body.replace(element.as_str(), "");
+                                    execute_empty_tags(body, client)
+                                } else {
+                                    Err(err)
+                                }
+                            },
+                            _ => Err(err)
+                        }
+                    }
                 }
             } else if tag.name == "comment" {
                 body = body.replace(element.as_str(), "");

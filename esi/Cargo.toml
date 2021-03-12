@@ -1,6 +1,6 @@
 [package]
 name = "esi"
-version = "0.1.1"
+version = "0.1.2"
 description = "A barebones implementation of Edge Side Includes"
 repository = "https://github.com/kailan/esi"
 license = "MIT"

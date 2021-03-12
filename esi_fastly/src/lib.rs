@@ -32,6 +32,10 @@ impl RequestHandler for FastlyRequestHandler {
             Err(_) => panic!("Error sending ESI include request to backend {}", backend)
         };
 
+        if beresp.get_status().as_u16() < 200 || beresp.get_status().as_u16() > 299 {
+            return Err(esi::Error::from_message(&format!("{}: {}", beresp.get_status(), beresp.take_body_str())));
+        }
+
         Ok(String::from(beresp.take_body_str()))
     }
 }
