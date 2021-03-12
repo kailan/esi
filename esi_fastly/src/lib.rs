@@ -3,7 +3,9 @@ use std::str::FromStr;
 use esi::{RequestHandler, transform_esi_string};
 use fastly::{Request, Response, http::{Url, header}};
 
-struct FastlyRequestHandler {
+/// A request handler that, given a `fastly::Request`, will route requests to a backend matching
+/// the hostname of the request URL.
+pub struct FastlyRequestHandler {
     original_req: Request
 }
 
@@ -34,6 +36,20 @@ impl RequestHandler for FastlyRequestHandler {
     }
 }
 
+/// Processes the body of a `fastly::Response` and returns an updated Response after executing
+/// all found ESI instructions.
+///
+/// # Examples
+/// ```no_run
+/// use fastly::{Error, Request, Response};
+/// use esi_fastly::process_esi;
+///
+/// #[fastly::main]
+/// fn main(req: Request) -> Result<Response, Error> {
+///     let beresp = req.send("backend")?;
+///     process_esi(req, beresp);
+/// }
+/// ```
 pub fn process_esi(req: Request, mut response: Response) -> Result<Response, fastly::Error> {
     let req_handler = FastlyRequestHandler::from_request(req);
 

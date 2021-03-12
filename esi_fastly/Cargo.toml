@@ -1,7 +1,8 @@
 [package]
 name = "esi_fastly"
-version = "0.1.0"
+version = "0.1.1"
 description = "A Fastly Compute@Edge interface for the esi crate"
+repository = "https://github.com/kailan/esi"
 license = "MIT"
 authors = ["Kailan Blanks <kailan@enviark.com>"]
 edition = "2018"

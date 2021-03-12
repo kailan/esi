@@ -28,11 +28,16 @@ impl Error {
     }
 }
 
+/// Handles requests to backends as part of the ESI execution process.
+/// Implemented by `esi_fastly::FastlyRequestHandler`.
 pub trait RequestHandler {
-    /// Returns response body
+    /// Sends a request to the given URL and returns either an error or the response body.
+    /// Returns response body.
     fn send_request(&self, url: &str) -> Result<String, Error>;
 }
 
+/// Processes a given ESI response body and returns the transformed body after all ESI instructions
+/// have been executed.
 pub fn transform_esi_string(mut body: String, client: &impl RequestHandler) -> Result<String, Error> {
     body = execute_content_tags(body, client)?;
     body = execute_empty_tags(body, client)?;
@@ -42,6 +47,7 @@ pub fn transform_esi_string(mut body: String, client: &impl RequestHandler) -> R
     Ok(body)
 }
 
+/// Representation of an ESI tag from a source response.
 #[derive(Debug)]
 pub struct Tag {
     name: String, // "include"
@@ -50,23 +56,21 @@ pub struct Tag {
 }
 
 impl Tag {
-    fn empty_from_captures(cap: Captures) -> Tag {
+    /// Parses an ESI tag from a regex capture.
+    /// Uses named capture groups `tag`, `content`, and `parameters`.
+    pub fn from_captures(cap: Captures) -> Tag {
         Tag {
             name: cap.name("tag").unwrap().as_str().to_string(),
-            content: None,
+            content: match cap.name("content") {
+                Some(cont) => Some(cont.as_str().to_string()),
+                None => None
+            },
             parameters: Tag::parse_parameters(cap.name("parameters").unwrap().as_str())
         }
     }
 
-    fn with_content_from_captures(cap: Captures) -> Tag {
-        Tag {
-            name: cap.name("tag").unwrap().as_str().to_string(),
-            content: Some(cap.name("content").unwrap().as_str().to_string()),
-            parameters: Tag::parse_parameters(cap.name("parameters").unwrap().as_str())
-        }
-    }
-
-    fn parse_parameters(input: &str) -> HashMap<String, String> {
+    /// Parses XML-style attributes into a map.
+    pub fn parse_parameters(input: &str) -> HashMap<String, String> {
         let mut map = HashMap::new();
 
         for cap in PARAMETER_REGEX.captures_iter(input) {
@@ -87,7 +91,7 @@ fn execute_empty_tags(mut body: String, client: &impl RequestHandler) -> Result<
 
     match element {
         Some(element) => {
-            let tag = Tag::empty_from_captures(EMPTY_TAG_REGEX.captures(&body).unwrap().unwrap());
+            let tag = Tag::from_captures(EMPTY_TAG_REGEX.captures(&body).unwrap().unwrap());
 
             println!("{:?}", tag);
 
@@ -120,7 +124,7 @@ fn execute_content_tags(mut body: String, client: &impl RequestHandler) -> Resul
 
     match element {
         Some(element) => {
-            let tag = Tag::with_content_from_captures(CONTENT_TAG_REGEX.captures(&body).unwrap().unwrap());
+            let tag = Tag::from_captures(CONTENT_TAG_REGEX.captures(&body).unwrap().unwrap());
 
             println!("{:?}", tag);
 
