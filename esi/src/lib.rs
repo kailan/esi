@@ -16,6 +16,7 @@ lazy_static! {
     static ref PARAMETER_REGEX: Regex = Regex::new(r#"\s*(.+?)="(.*?)""#).unwrap();
 }
 
+/// Contains information about errors encountered during ESI parsing or execution.
 pub struct Error {
     pub message: String,
 }
@@ -28,6 +29,7 @@ impl Error {
     }
 }
 
+/// A request initiated by the ESI executor.
 #[derive(Debug)]
 pub struct Request {
     pub url: String
@@ -41,6 +43,8 @@ impl Request {
     }
 }
 
+/// A response from the local `ExecutionContext` implementation.
+/// Usually the result of a `Request`.
 #[derive(Debug)]
 pub struct Response {
     pub body: String,
@@ -105,6 +109,7 @@ impl Tag {
     }
 }
 
+/// Sends a request to the given `src`, optionally falling back to the `alt` if the first request is not successful.
 fn send_request(src: &String, alt: Option<&String>, client: &impl ExecutionContext) -> Result<Response, Error> {
     match client.send_request(Request::from_url(src)) {
         Ok(resp) => Ok(resp),
@@ -118,6 +123,7 @@ fn send_request(src: &String, alt: Option<&String>, client: &impl ExecutionConte
     }
 }
 
+/// Recursively parses, executes, and replaces ESI tags (with no inner content) in the given body string.
 fn execute_empty_tags(body: String, client: &impl ExecutionContext) -> Result<String, Error> {
     let element = EMPTY_TAG_REGEX.find(&body).unwrap_or_default();
 
@@ -163,6 +169,7 @@ fn execute_empty_tags(body: String, client: &impl ExecutionContext) -> Result<St
     }
 }
 
+/// Recursively parses, executes, and replaces ESI tags (with inner content) in the given body string.
 fn execute_content_tags(body: String, client: &impl ExecutionContext) -> Result<String, Error> {
     let element = CONTENT_TAG_REGEX.find(&body).unwrap_or_default();
 

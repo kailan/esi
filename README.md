@@ -47,7 +47,7 @@ fn main(req: Request) -> Result<Response, Error> {
 
 ### Standalone Rust
 
-To use the [`esi`](https://docs.rs/esi) crate without a third-party `RequestHandler`, you will have to implement one yourself. The example below shows a basic request handler that uses the `reqwest` crate.
+To use the [`esi`](https://docs.rs/esi) crate without a third-party `ExecutionContext`, you will have to implement one yourself. The example below shows a basic execution context with a request handler that uses the `reqwest` crate.
 
 #### Cargo.toml
 
@@ -61,7 +61,7 @@ esi = "^0.1"
 ```rust
 pub struct ReqwestHandler;
 
-impl esi::RequestHandler for ReqwestHandler {
+impl esi::ExecutionContext for ReqwestHandler {
     fn send_request(&self, url: &str) -> Result<String, esi::Error> {
         match reqwest::blocking::get(url) {
             Ok(resp) => Ok(resp.text().unwrap()),
@@ -75,10 +75,12 @@ impl esi::RequestHandler for ReqwestHandler {
 ```rust
 use esi::transform_esi_string;
 
-let req_handler = ReqwestHandler {};
+let exec_context = ReqwestHandler {};
 
-match transform_esi_string(response_body, &req_handler) {
-    Ok(body) => response.set_body(body),
+let response_body = send_request_to_backend();
+
+match transform_esi_string(response_body, &exec_context) {
+    Ok(body) => send_body_to_client(body),
     Err(err) => panic!()
 }
 ```
