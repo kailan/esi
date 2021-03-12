@@ -1,9 +1,11 @@
 [package]
 name = "esi_fastly"
 version = "0.1.0"
+description = "A Fastly Compute@Edge interface for the esi crate"
+license = "MIT"
 authors = ["Kailan Blanks <kailan@enviark.com>"]
 edition = "2018"
 
 [dependencies]
 fastly = "^0.7"
-esi = { path = "../esi" }
+esi = { path = "../esi", version = "^0.1" }

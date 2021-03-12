@@ -1,6 +1,8 @@
 [package]
 name = "esi"
 version = "0.1.0"
+description = "A barebones implementation of Edge Side Includes"
+license = "MIT"
 authors = ["Kailan Blanks <kailan@enviark.com>"]
 edition = "2018"
 
