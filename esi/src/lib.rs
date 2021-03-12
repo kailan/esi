@@ -28,17 +28,36 @@ impl Error {
     }
 }
 
+#[derive(Debug)]
+pub struct Request {
+    pub url: String
+}
+
+impl Request {
+    fn from_url(url: &str) -> Self {
+        Self {
+            url: url.to_string()
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Response {
+    pub body: String,
+    pub status_code: u16
+}
+
 /// Handles requests to backends as part of the ESI execution process.
 /// Implemented by `esi_fastly::FastlyRequestHandler`.
-pub trait RequestHandler {
+pub trait ExecutionContext {
     /// Sends a request to the given URL and returns either an error or the response body.
     /// Returns response body.
-    fn send_request(&self, url: &str) -> Result<String, Error>;
+    fn send_request(&self, req: Request) -> Result<Response, Error>;
 }
 
 /// Processes a given ESI response body and returns the transformed body after all ESI instructions
 /// have been executed.
-pub fn transform_esi_string(mut body: String, client: &impl RequestHandler) -> Result<String, Error> {
+pub fn transform_esi_string(mut body: String, client: &impl ExecutionContext) -> Result<String, Error> {
     body = execute_content_tags(body, client)?;
     body = execute_empty_tags(body, client)?;
 
@@ -86,11 +105,11 @@ impl Tag {
     }
 }
 
-fn send_request(src: &String, alt: Option<&String>, client: &impl RequestHandler) -> Result<String, Error> {
-    match client.send_request(src) {
+fn send_request(src: &String, alt: Option<&String>, client: &impl ExecutionContext) -> Result<Response, Error> {
+    match client.send_request(Request::from_url(src)) {
         Ok(resp) => Ok(resp),
         Err(err) => match alt {
-            Some(alt) => match client.send_request(alt) {
+            Some(alt) => match client.send_request(Request::from_url(alt)) {
                 Ok(resp) => Ok(resp),
                 Err(_) => Err(err)
             },
@@ -99,14 +118,14 @@ fn send_request(src: &String, alt: Option<&String>, client: &impl RequestHandler
     }
 }
 
-fn execute_empty_tags(mut body: String, client: &impl RequestHandler) -> Result<String, Error> {
+fn execute_empty_tags(body: String, client: &impl ExecutionContext) -> Result<String, Error> {
     let element = EMPTY_TAG_REGEX.find(&body).unwrap_or_default();
 
     match element {
         Some(element) => {
             let tag = Tag::from_captures(EMPTY_TAG_REGEX.captures(&body).unwrap().unwrap());
 
-            println!("{:?}", tag);
+            println!("Executing tag: {:?}", tag);
 
             if tag.name == "include" {
                 let src = match tag.parameters.get("src") {
@@ -118,16 +137,14 @@ fn execute_empty_tags(mut body: String, client: &impl RequestHandler) -> Result<
 
                 match send_request(src, alt, client) {
                     Ok(resp) => {
-                        body = body.replace(element.as_str(), &resp);
-                        execute_empty_tags(body, client)
+                        execute_empty_tags(body.replace(element.as_str(), &resp.body), client)
                     },
                     Err(err) => {
                         match tag.parameters.get("onerror") {
                             Some(onerror) => {
                                 if onerror == "continue" {
                                     println!("Failed to fetch {} but continued", src);
-                                    body = body.replace(element.as_str(), "");
-                                    execute_empty_tags(body, client)
+                                    execute_empty_tags(body.replace(element.as_str(), ""), client)
                                 } else {
                                     Err(err)
                                 }
@@ -137,8 +154,7 @@ fn execute_empty_tags(mut body: String, client: &impl RequestHandler) -> Result<
                     }
                 }
             } else if tag.name == "comment" {
-                body = body.replace(element.as_str(), "");
-                execute_empty_tags(body, client)
+                execute_empty_tags(body.replace(element.as_str(), ""), client)
             } else {
                 Err(Error::from_message(&format!("Unsupported tag: <esi:{}>", tag.name)))
             }
@@ -147,18 +163,17 @@ fn execute_empty_tags(mut body: String, client: &impl RequestHandler) -> Result<
     }
 }
 
-fn execute_content_tags(mut body: String, client: &impl RequestHandler) -> Result<String, Error> {
+fn execute_content_tags(body: String, client: &impl ExecutionContext) -> Result<String, Error> {
     let element = CONTENT_TAG_REGEX.find(&body).unwrap_or_default();
 
     match element {
         Some(element) => {
             let tag = Tag::from_captures(CONTENT_TAG_REGEX.captures(&body).unwrap().unwrap());
 
-            println!("{:?}", tag);
+            println!("Executing tag: {:?}", tag);
 
             if tag.name == "remove" {
-                body = body.replace(element.as_str(), "");
-                execute_content_tags(body, client)
+                execute_content_tags(body.replace(element.as_str(), ""), client)
             } else {
                 Err(Error::from_message(&format!("Unsupported tag: <esi:{}>", tag.name)))
             }

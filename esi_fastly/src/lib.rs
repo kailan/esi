@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use esi::{RequestHandler, transform_esi_string};
+use esi::{ExecutionContext, transform_esi_string};
 use fastly::{Request, Response, http::{Url, header}};
 
 /// A request handler that, given a `fastly::Request`, will route requests to a backend matching
@@ -17,13 +17,14 @@ impl FastlyRequestHandler {
     }
 }
 
-impl RequestHandler for FastlyRequestHandler {
-    fn send_request(&self, url: &str) -> Result<String, esi::Error> {
+impl ExecutionContext for FastlyRequestHandler {
+    fn send_request(&self, req: esi::Request) -> Result<esi::Response, esi::Error> {
+        println!("Sending request: {:?}", req);
 
-        let mut bereq = self.original_req.clone_without_body().with_url(url);
+        let mut bereq = self.original_req.clone_without_body().with_url(&req.url);
 
         // assume that backend name == host
-        let parsed_url = Url::from_str(url).unwrap();
+        let parsed_url = Url::from_str(&req.url).unwrap();
         let backend = parsed_url.host_str().unwrap();
         bereq.set_header(header::HOST, backend);
 
@@ -36,7 +37,13 @@ impl RequestHandler for FastlyRequestHandler {
             return Err(esi::Error::from_message(&format!("{}: {}", beresp.get_status(), beresp.take_body_str())));
         }
 
-        Ok(String::from(beresp.take_body_str()))
+        let resp = esi::Response {
+            body: String::from(beresp.take_body_str()),
+            status_code: beresp.get_status().as_u16()
+        };
+
+        println!("Received response: {:?}", resp);
+        Ok(resp)
     }
 }
 
