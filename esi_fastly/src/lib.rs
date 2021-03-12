@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
 use esi::{RequestHandler, transform_esi_string};
-use fastly::{Request, Response, http::Url};
+use fastly::{Request, Response, http::{Url, header}};
 
 struct FastlyRequestHandler {
     original_req: Request
@@ -18,11 +18,12 @@ impl FastlyRequestHandler {
 impl RequestHandler for FastlyRequestHandler {
     fn send_request(&self, url: &str) -> Result<String, esi::Error> {
 
-        let bereq = self.original_req.clone_without_body().with_url(url);
+        let mut bereq = self.original_req.clone_without_body().with_url(url);
 
         // assume that backend name == host
         let parsed_url = Url::from_str(url).unwrap();
         let backend = parsed_url.host_str().unwrap();
+        bereq.set_header(header::HOST, backend);
 
         let mut beresp = match bereq.send(backend) {
             Ok(resp) => resp,

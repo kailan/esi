@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate lazy_static;
 
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::HashMap;
 
 use fancy_regex::{Captures, Regex};
 
@@ -92,8 +92,18 @@ fn execute_empty_tags(mut body: String, client: &impl RequestHandler) -> Result<
             println!("{:?}", tag);
 
             if tag.name == "include" {
-                body = body.replace(element.as_str(), "<span>include</span>");
-                execute_empty_tags(body, client)
+                match tag.parameters.get("src") {
+                    Some(src) => {
+                        match client.send_request(src) {
+                            Ok(resp) => {
+                                body = body.replace(element.as_str(), &resp);
+                                execute_empty_tags(body, client)
+                            },
+                            Err(err) => Err(err)
+                        }
+                    },
+                    None => Err(Error::from_message("No src parameter in <esi:include>"))
+                }
             } else if tag.name == "comment" {
                 body = body.replace(element.as_str(), "");
                 execute_empty_tags(body, client)

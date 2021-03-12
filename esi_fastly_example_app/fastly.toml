@@ -1,4 +1,4 @@
-version = 220
+version = 225
 name = "esi_fastly_example_app"
 description = ""
 authors = ["kailan@enviark.com"]
