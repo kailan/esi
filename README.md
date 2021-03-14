@@ -14,7 +14,7 @@ Goal is to fully implement the [ESI Language Specification 1.0](https://www.w3.o
 
 ### Compute@Edge
 
-The [`esi_fastly`](https://docs.rs/esi_fastly) crate provides an implementation of a `RequestHandler` that will automatically pass requests to backends matching the request hostname. Make sure create a backend for every host that your application will serve.
+The [`esi_fastly`](https://docs.rs/esi_fastly) crate provides an implementation of an `ExecutionContext` that will automatically pass requests to backends matching the request hostname. Make sure to create a backend for every host that your application will serve.
 
 #### Cargo.toml
 
