@@ -1,6 +1,6 @@
 [package]
 name = "esi"
-version = "0.1.3"
+version = "0.1.4-pre"
 description = "A barebones implementation of Edge Side Includes"
 repository = "https://github.com/kailan/esi"
 license = "MIT"
@@ -9,5 +9,4 @@ edition = "2018"
 readme = "../README.md"
 
 [dependencies]
-lazy_static = "^1.4"
-fancy-regex = "^0.5"
+quick-xml = "^0.22"

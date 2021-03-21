@@ -38,7 +38,7 @@ impl ExecutionContext for FastlyRequestHandler {
         }
 
         let resp = esi::Response {
-            body: String::from(beresp.take_body_str()),
+            body: beresp.take_body_bytes(),
             status_code: beresp.get_status().as_u16()
         };
 
@@ -64,7 +64,7 @@ impl ExecutionContext for FastlyRequestHandler {
 pub fn process_esi(req: Request, mut response: Response) -> Result<Response, fastly::Error> {
     let req_handler = FastlyRequestHandler::from_request(req);
 
-    match transform_esi_string(response.take_body().into_string(), &req_handler) {
+    match transform_esi_string(response.take_body(), &req_handler) {
         Ok(body) => response.set_body(body),
         Err(err) => return Err(fastly::Error::msg(err.message)),
     }

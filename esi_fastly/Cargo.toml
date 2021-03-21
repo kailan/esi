@@ -1,6 +1,6 @@
 [package]
 name = "esi_fastly"
-version = "0.1.3"
+version = "0.1.4-pre"
 description = "A Fastly Compute@Edge interface for the esi crate"
 repository = "https://github.com/kailan/esi"
 license = "MIT"
@@ -10,4 +10,4 @@ readme = "../README.md"
 
 [dependencies]
 fastly = "^0.7"
-esi = { path = "../esi", version = "^0.1" }
+esi = { path = "../esi", version = "0.1.4-pre" }

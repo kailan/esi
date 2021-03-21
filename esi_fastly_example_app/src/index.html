@@ -3,15 +3,11 @@
 
 <body>
   <h1>ESI demo</h1>
-
   <esi:comment text="The following line will be hidden:" />
   <esi:remove>if you can see this it broke</esi:remove>
-
   <esi:include src="https://mock-s3.edgecompute.app/doesntexist.html" alt="https://mock-s3.edgecompute.app/404.html" />
-
-
   <esi:comment text="This request will fail but should not stop the rest of the page rendering:" />
-  <esi:include src="https://mock-s3.edgecompute.app/doesntexist.html" onerror="continue"/>
+  <esi:include src="https://mock-s3.edgecompute.app/doesntexist.html" onerror="continue" />
 </body>
 
 </html>
