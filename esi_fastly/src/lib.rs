@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use esi::{ExecutionContext, transform_esi_string};
+use esi::{ExecutionContext, transform_esi_string, ExecutionError};
 use fastly::{Request, Response, http::{Url, header}};
 
 /// A request handler that, given a `fastly::Request`, will route requests to a backend matching
@@ -18,7 +18,7 @@ impl FastlyRequestHandler {
 }
 
 impl ExecutionContext for FastlyRequestHandler {
-    fn send_request(&self, req: esi::Request) -> Result<esi::Response, esi::Error> {
+    fn send_request(&self, req: esi::Request) -> Result<esi::Response, ExecutionError> {
         println!("Sending request: {:?}", req);
 
         let mut bereq = self.original_req.clone_without_body().with_url(&req.url);
@@ -36,7 +36,8 @@ impl ExecutionContext for FastlyRequestHandler {
         println!("Received response: {}", beresp.get_status().as_u16());
 
         if beresp.get_status().as_u16() < 200 || beresp.get_status().as_u16() > 299 {
-            return Err(esi::Error::from_message(&format!("{}: {}", beresp.get_status(), beresp.take_body_str())));
+            // TODO: handle bad status codes
+            return Err(ExecutionError::Unknown);
         }
 
         let resp = esi::Response {
@@ -68,7 +69,7 @@ pub fn process_esi(req: Request, mut response: Response) -> Result<Response, fas
 
     match transform_esi_string(response.take_body(), &req_handler) {
         Ok(body) => response.set_body(body),
-        Err(err) => return Err(fastly::Error::msg(err.message)),
+        Err(err) => return Err(fastly::Error::from(err)),
     }
 
     Ok(response)
