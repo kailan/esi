@@ -86,24 +86,28 @@ fn parse_attributes(bytes: BytesStart) -> Result<HashMap<Vec<u8>, Vec<u8>>, Erro
     Ok(map)
 }
 
-fn parse_tag_entries<'a>(body: impl BufRead) -> Result<Vec<TagEntry<'a>>, Error> {
+fn parse_tag_entries<'a>(body: impl BufRead, namespace: &String) -> Result<Vec<TagEntry<'a>>, Error> {
     let mut reader = Reader::from_reader(body);
     let mut buf = Vec::new();
 
     let mut events: Vec<TagEntry> = Vec::new();
     let mut remove = false;
 
+    let esi_remove = format!("{}:remove", namespace);
+    let esi_empty = format!("{}:", namespace);
+
     // Parse tags and build events vec
     loop {
         buf.clear();
         match reader.read_event(&mut buf) {
             // Handle <esi:remove> tags
-            Ok(Event::Start(elem)) if elem.starts_with(b"esi:remove") => {
+            Ok(Event::Start(elem)) if elem.starts_with(esi_remove.as_bytes()) => {
                 remove = true;
             }
-            Ok(Event::End(elem)) if elem.starts_with(b"esi:remove") => {
+            Ok(Event::End(elem)) if elem.starts_with(esi_remove.as_bytes()) => {
                 if !remove {
-                    return Err(Error::from_message("Unexpected </esi:remove> closing tag"));
+                    let message = format!("Unexpected </{}:remove> closing tag", namespace);
+                    return Err(Error::from_message(&message));
                 }
 
                 remove = false;
@@ -111,7 +115,7 @@ fn parse_tag_entries<'a>(body: impl BufRead) -> Result<Vec<TagEntry<'a>>, Error>
             _ if remove => continue,
 
             // Parse empty ESI tags
-            Ok(Event::Empty(elem)) if elem.name().starts_with(b"esi:") => {
+            Ok(Event::Empty(elem)) if elem.name().starts_with(esi_empty.as_bytes()) => {
                 events.push(TagEntry {
                     event: None,
                     esi_tag: Some(Tag {
@@ -138,17 +142,21 @@ fn parse_tag_entries<'a>(body: impl BufRead) -> Result<Vec<TagEntry<'a>>, Error>
 fn execute_tag_entries<'a>(
     entries: &'a Vec<TagEntry>,
     client: &impl ExecutionContext,
+    namespace: &String
 ) -> Result<HashMap<usize, Vec<u8>>, Error> {
     let mut map = HashMap::new();
+
+    let esi_include = format!("{}:include", namespace);
 
     for (index, entry) in entries.iter().enumerate() {
         match &entry.esi_tag {
             Some(tag) => {
-                if tag.name == b"esi:include" {
+                if tag.name == esi_include.as_bytes() {
                     let src = match tag.get_param("src") {
                         Some(src) => src,
                         None => {
-                            return Err(Error::from_message("No src parameter in <esi:include>"))
+                            let message = format!("No src parameter in <{}:include>", namespace);
+                            return Err(Error::from_message(&message))
                         }
                     };
 
@@ -186,12 +194,23 @@ fn execute_tag_entries<'a>(
 pub fn transform_esi_string(
     body: impl BufRead,
     client: &impl ExecutionContext,
+    namespace: String
+) -> Result<Vec<u8>, Error> {
+    transform_esi_string_with_namespace(body, client, String::from("esi"))
+}
+
+/// Processes a given ESI response body and returns the transformed body after all ESI instructions
+/// have been executed, taking an xml namespace as extra parameter.
+pub fn transform_esi_string_with_namespace(
+    body: impl BufRead,
+    client: &impl ExecutionContext,
+    namespace: String
 ) -> Result<Vec<u8>, Error> {
     // Parse tags
-    let events = parse_tag_entries(body)?;
+    let events = parse_tag_entries(body, &namespace)?;
 
     // Execute tags
-    let results = execute_tag_entries(&events, client)?;
+    let results = execute_tag_entries(&events, client, &namespace)?;
 
     // Build output XML
     let mut writer = Writer::new(Vec::new());
