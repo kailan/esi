@@ -3,6 +3,7 @@ use quick_xml::{
     Reader, Writer,
 };
 use std::{collections::HashMap, io::BufRead};
+use thiserror::Error;
 
 pub struct Configuration {
     namespace: String
@@ -26,18 +27,21 @@ impl Configuration {
     }
 }
 
-/// Contains information about errors encountered during ESI parsing or execution.
-pub struct Error {
-    pub message: String,
+#[derive(Error, Debug)]
+pub enum ExecutionError {
+    #[error("xml parsing error: {0}")]
+    XMLError(#[from] quick_xml::Error),
+    #[error("tag `{0}` is missing required parameter `{1}`")]
+    MissingRequiredParameter(String, String),
+    #[error("unexpected `{0}` closing tag")]
+    UnexpectedClosingTag(String),
+    #[error("duplicate attribute detected: {0}")]
+    DuplicateTagAttribute(String),
+    #[error("unknown error")]
+    Unknown,
 }
 
-impl Error {
-    pub fn from_message(message: &str) -> Error {
-        Error {
-            message: String::from(message),
-        }
-    }
-}
+pub type Result<T> = std::result::Result<T, ExecutionError>;
 
 /// A request initiated by the ESI executor.
 #[derive(Debug)]
@@ -66,7 +70,7 @@ pub struct Response {
 pub trait ExecutionContext {
     /// Sends a request to the given URL and returns either an error or the response body.
     /// Returns response body.
-    fn send_request(&self, req: Request) -> Result<Response, Error>;
+    fn send_request(&self, req: Request) -> Result<Response>;
 }
 
 /// Representation of an ESI tag from a source response.
@@ -79,10 +83,7 @@ pub struct Tag {
 
 impl Tag {
     fn get_param(&self, key: &str) -> Option<String> {
-        match self.parameters.get(key.as_bytes()) {
-            Some(value) => Some(String::from_utf8(value.to_owned()).unwrap()),
-            None => None,
-        }
+        self.parameters.get(key.as_bytes()).map(|value| String::from_utf8(value.to_owned()).unwrap())
     }
 }
 
@@ -92,23 +93,19 @@ pub struct TagEntry<'a> {
 }
 
 // This could be much cleaner but I'm not good enough at Rust for that
-fn parse_attributes(bytes: BytesStart) -> Result<HashMap<Vec<u8>, Vec<u8>>, Error> {
+fn parse_attributes(bytes: BytesStart) -> Result<HashMap<Vec<u8>, Vec<u8>>> {
     let mut map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
 
-    for entry in bytes.attributes() {
-        match entry {
-            Ok(attr) => match map.insert(attr.key.to_vec(), attr.value.to_vec()) {
-                Some(_) => return Err(Error::from_message("Attribute already defined")),
-                None => {}
-            },
-            _ => {}
+    for entry in bytes.attributes().flatten() {
+        if map.insert(entry.key.to_vec(), entry.value.to_vec()).is_some() {
+            return Err(ExecutionError::DuplicateTagAttribute(String::from_utf8(entry.key.to_vec()).unwrap()));
         }
     }
 
     Ok(map)
 }
 
-fn parse_tag_entries<'a>(body: impl BufRead, configuration: &Configuration) -> Result<Vec<TagEntry<'a>>, Error> {
+fn parse_tag_entries<'a>(body: impl BufRead, configuration: &Configuration) -> Result<Vec<TagEntry<'a>>> {
     let mut reader = Reader::from_reader(body);
     let mut buf = Vec::new();
 
@@ -128,8 +125,7 @@ fn parse_tag_entries<'a>(body: impl BufRead, configuration: &Configuration) -> R
             }
             Ok(Event::End(elem)) if elem.starts_with(esi_remove.as_bytes()) => {
                 if !remove {
-                    let message = format!("Unexpected </{}:remove> closing tag", configuration.namespace);
-                    return Err(Error::from_message(&message));
+                    return Err(ExecutionError::UnexpectedClosingTag(String::from_utf8(elem.to_vec()).unwrap()));
                 }
 
                 remove = false;
@@ -161,11 +157,11 @@ fn parse_tag_entries<'a>(body: impl BufRead, configuration: &Configuration) -> R
 }
 
 // Executes all entries with an ESI tag, and returns a map of those entries with the entry's index as key and content as value.
-fn execute_tag_entries<'a>(
-    entries: &'a Vec<TagEntry>,
+fn execute_tag_entries(
+    entries: &[TagEntry],
     client: &impl ExecutionContext,
     configuration: &Configuration
-) -> Result<HashMap<usize, Vec<u8>>, Error> {
+) -> Result<HashMap<usize, Vec<u8>>> {
     let mut map = HashMap::new();
 
     let esi_include = format!("{}:include", configuration.namespace);
@@ -177,24 +173,24 @@ fn execute_tag_entries<'a>(
                     let src = match tag.get_param("src") {
                         Some(src) => src,
                         None => {
-                            let message = format!("No src parameter in <{}:include>", configuration.namespace);
-                            return Err(Error::from_message(&message))
+                            return Err(ExecutionError::MissingRequiredParameter(
+                                String::from_utf8(tag.name.to_vec()).unwrap(),
+                                "src".to_string(),
+                            ));
                         }
                     };
 
                     let alt = tag.get_param("alt");
 
-                    match send_request(&src, alt.as_ref(), client) {
-                        Ok(resp) => match map.insert(index, resp.body) {
-                            _ => {}
+                    match send_request(&src, alt, client) {
+                        Ok(resp) => {
+                            map.insert(index, resp.body).unwrap();
                         },
                         Err(err) => match tag.get_param("onerror") {
                             Some(onerror) => {
                                 if onerror == "continue" {
                                     println!("Failed to fetch {} but continued", src);
-                                    match map.insert(index, vec![]) {
-                                        _ => {}
-                                    }
+                                    map.insert(index, vec![]).unwrap();
                                 } else {
                                     return Err(err);
                                 }
@@ -217,7 +213,7 @@ pub fn transform_esi_string(
     body: impl BufRead,
     client: &impl ExecutionContext,
     configuration: &Configuration
-) -> Result<Vec<u8>, Error> {
+) -> Result<Vec<u8>> {
     // Parse tags
     let events = parse_tag_entries(body, configuration)?;
 
@@ -229,16 +225,11 @@ pub fn transform_esi_string(
 
     for (index, entry) in events.iter().enumerate() {
         match &entry.esi_tag {
-            Some(_tag) => {
-                match results.get(&index) {
-                    Some(content) => {
-                        writer
-                            .write_event(Event::Text(BytesText::from_escaped(content)))
-                            .unwrap();
-                    }
-                    None => {}
-                }
-            }
+            Some(_tag) => if let Some(content) = results.get(&index) {
+                writer
+                    .write_event(Event::Text(BytesText::from_escaped(content)))
+                    .unwrap();
+            },
             _ => match &entry.event {
                 Some(event) => {
                     writer.write_event(event).unwrap();
@@ -255,14 +246,14 @@ pub fn transform_esi_string(
 
 /// Sends a request to the given `src`, optionally falling back to the `alt` if the first request is not successful.
 fn send_request(
-    src: &String,
-    alt: Option<&String>,
+    src: &str,
+    alt: Option<String>,
     client: &impl ExecutionContext,
-) -> Result<Response, Error> {
+) -> Result<Response> {
     match client.send_request(Request::from_url(src)) {
         Ok(resp) => Ok(resp),
         Err(err) => match alt {
-            Some(alt) => match client.send_request(Request::from_url(alt)) {
+            Some(alt) => match client.send_request(Request::from_url(&alt)) {
                 Ok(resp) => Ok(resp),
                 Err(_) => Err(err),
             },

@@ -1,6 +1,6 @@
 [package]
 name = "esi"
-version = "0.1.4-pre"
+version = "0.2.0-pre"
 description = "A barebones implementation of Edge Side Includes"
 repository = "https://github.com/kailan/esi"
 license = "MIT"
@@ -10,3 +10,4 @@ readme = "../README.md"
 
 [dependencies]
 quick-xml = "^0.22"
+thiserror = "^1.0"
