@@ -7,4 +7,5 @@ publish = false
 
 [dependencies]
 fastly = "^0.8"
+esi = { path = "../esi" }
 esi_fastly = { path = "../esi_fastly" }

@@ -15,7 +15,7 @@ implementation, capable of request and response streaming. The API will likely c
 
 ## Usage
 
-Changing soon.
+Up-to-date docs coming soon.
 
 ## License
 

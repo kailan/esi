@@ -5,6 +5,28 @@ use quick_xml::{
 use std::{collections::HashMap, io::BufRead};
 use thiserror::Error;
 
+pub struct Configuration {
+    namespace: String
+}
+
+impl Default for Configuration {
+    fn default() -> Self {
+        Self {
+            namespace: String::from("esi")
+        }
+    }
+}
+
+impl Configuration {
+    /// Sets an alternative ESI namespace, which is used to identify ESI instructions.
+    ///
+    /// For example, setting this to `test` would cause the processor to only match tags like `<test:include>`.
+    pub fn with_namespace(&mut self, namespace: impl Into<String>) -> &mut Self {
+        self.namespace = namespace.into();
+        self
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum ExecutionError {
     #[error("xml parsing error: {0}")]
@@ -83,22 +105,25 @@ fn parse_attributes(bytes: BytesStart) -> Result<HashMap<Vec<u8>, Vec<u8>>> {
     Ok(map)
 }
 
-fn parse_tag_entries<'a>(body: impl BufRead) -> Result<Vec<TagEntry<'a>>> {
+fn parse_tag_entries<'a>(body: impl BufRead, configuration: &Configuration) -> Result<Vec<TagEntry<'a>>> {
     let mut reader = Reader::from_reader(body);
     let mut buf = Vec::new();
 
     let mut events: Vec<TagEntry> = Vec::new();
     let mut remove = false;
 
+    let esi_remove = format!("{}:remove", configuration.namespace).into_bytes();
+    let esi_empty = format!("{}:", configuration.namespace).into_bytes();
+
     // Parse tags and build events vec
     loop {
         buf.clear();
         match reader.read_event(&mut buf) {
             // Handle <esi:remove> tags
-            Ok(Event::Start(elem)) if elem.starts_with(b"esi:remove") => {
+            Ok(Event::Start(elem)) if elem.starts_with(&esi_remove) => {
                 remove = true;
             }
-            Ok(Event::End(elem)) if elem.starts_with(b"esi:remove") => {
+            Ok(Event::End(elem)) if elem.starts_with(&esi_remove) => {
                 if !remove {
                     return Err(ExecutionError::UnexpectedClosingTag(String::from_utf8(elem.to_vec()).unwrap()));
                 }
@@ -108,7 +133,7 @@ fn parse_tag_entries<'a>(body: impl BufRead) -> Result<Vec<TagEntry<'a>>> {
             _ if remove => continue,
 
             // Parse empty ESI tags
-            Ok(Event::Empty(elem)) if elem.name().starts_with(b"esi:") => {
+            Ok(Event::Empty(elem)) if elem.name().starts_with(&esi_empty) => {
                 events.push(TagEntry {
                     event: None,
                     esi_tag: Some(Tag {
@@ -135,13 +160,16 @@ fn parse_tag_entries<'a>(body: impl BufRead) -> Result<Vec<TagEntry<'a>>> {
 fn execute_tag_entries(
     entries: &[TagEntry],
     client: &impl ExecutionContext,
+    configuration: &Configuration
 ) -> Result<HashMap<usize, Vec<u8>>> {
     let mut map = HashMap::new();
+
+    let esi_include = format!("{}:include", configuration.namespace).into_bytes();
 
     for (index, entry) in entries.iter().enumerate() {
         match &entry.esi_tag {
             Some(tag) => {
-                if tag.name == b"esi:include" {
+                if tag.name == esi_include {
                     let src = match tag.get_param("src") {
                         Some(src) => src,
                         None => {
@@ -184,12 +212,13 @@ fn execute_tag_entries(
 pub fn transform_esi_string(
     body: impl BufRead,
     client: &impl ExecutionContext,
+    configuration: &Configuration
 ) -> Result<Vec<u8>> {
     // Parse tags
-    let events = parse_tag_entries(body)?;
+    let events = parse_tag_entries(body, configuration)?;
 
     // Execute tags
-    let results = execute_tag_entries(&events, client)?;
+    let results = execute_tag_entries(&events, client, configuration)?;
 
     // Build output XML
     let mut writer = Writer::new(Vec::new());
