@@ -20,6 +20,7 @@ The [`esi_fastly`](https://docs.rs/esi_fastly) crate provides an implementation 
 
 ```toml
 [dependencies]
+esi = "^0.1"
 esi_fastly = "^0.1"
 ```
 
@@ -37,7 +38,7 @@ fn main(req: Request) -> Result<Response, Error> {
     // Process and execute ESI tags within the response body.
     // Make sure you have backends defined for any included hosts.
     // Their names should match the hostname, e.g. "developer.fastly.com"
-    let result = process_esi(req, beresp)?;
+    let result = process_esi(req, beresp, esi::Configuration::default())?;
 
     // Return the updated response to the client.
     Ok(result)
@@ -79,7 +80,7 @@ let exec_context = ReqwestHandler {};
 
 let response_body = send_request_to_backend();
 
-match transform_esi_string(response_body, &exec_context) {
+match transform_esi_string(response_body, &exec_context, esi::Configuration::default()) {
     Ok(body) => send_body_to_client(body),
     Err(err) => panic!()
 }

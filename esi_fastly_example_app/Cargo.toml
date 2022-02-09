@@ -6,4 +6,5 @@ edition = "2018"
 
 [dependencies]
 fastly = "^0.7"
+esi = { path = "../esi" }
 esi_fastly = { path = "../esi_fastly" }

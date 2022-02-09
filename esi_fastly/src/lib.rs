@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use esi::{ExecutionContext, transform_esi_string_with_namespace};
+use esi::{ExecutionContext, Configuration, transform_esi_string};
 use fastly::{Request, Response, http::{Url, header}};
 
 /// A request handler that, given a `fastly::Request`, will route requests to a backend matching
@@ -60,17 +60,13 @@ impl ExecutionContext for FastlyRequestHandler {
 /// #[fastly::main]
 /// fn main(req: Request) -> Result<Response, Error> {
 ///     let beresp = req.send("backend")?;
-///     process_esi(req, beresp);
+///     process_esi(req, beresp, &esi::Configuration::default());
 /// }
 /// ```
-pub fn process_esi(req: Request, mut response: Response) -> Result<Response, fastly::Error> {
-    process_esi_with_namespace(req, response, String::from("esi"))
-}
-
-pub fn process_esi_with_namespace(req: Request, mut response: Response, namespace: String) -> Result<Response, fastly::Error> {
+pub fn process_esi(req: Request, mut response: Response, configuration: &Configuration) -> Result<Response, fastly::Error> {
     let req_handler = FastlyRequestHandler::from_request(req);
 
-    match transform_esi_string_with_namespace(response.take_body(), &req_handler, namespace) {
+    match transform_esi_string(response.take_body(), &req_handler, configuration) {
         Ok(body) => response.set_body(body),
         Err(err) => return Err(fastly::Error::msg(err.message)),
     }

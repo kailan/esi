@@ -4,6 +4,28 @@ use quick_xml::{
 };
 use std::{collections::HashMap, io::BufRead};
 
+pub struct Configuration {
+    namespace: String
+}
+
+impl Default for Configuration {
+    fn default() -> Self {
+        Self {
+            namespace: String::from("esi")
+        }
+    }
+}
+
+impl Configuration {
+    /// Sets an alternative ESI namespace, which is used to identify ESI instructions.
+    ///
+    /// For example, setting this to `test` would cause the processor to only match tags like `<test:include>`.
+    pub fn with_namespace(&mut self, namespace: impl Into<String>) -> &mut Self {
+        self.namespace = namespace.into();
+        self
+    }
+}
+
 /// Contains information about errors encountered during ESI parsing or execution.
 pub struct Error {
     pub message: String,
@@ -86,15 +108,15 @@ fn parse_attributes(bytes: BytesStart) -> Result<HashMap<Vec<u8>, Vec<u8>>, Erro
     Ok(map)
 }
 
-fn parse_tag_entries<'a>(body: impl BufRead, namespace: &String) -> Result<Vec<TagEntry<'a>>, Error> {
+fn parse_tag_entries<'a>(body: impl BufRead, configuration: &Configuration) -> Result<Vec<TagEntry<'a>>, Error> {
     let mut reader = Reader::from_reader(body);
     let mut buf = Vec::new();
 
     let mut events: Vec<TagEntry> = Vec::new();
     let mut remove = false;
 
-    let esi_remove = format!("{}:remove", namespace);
-    let esi_empty = format!("{}:", namespace);
+    let esi_remove = format!("{}:remove", configuration.namespace);
+    let esi_empty = format!("{}:", configuration.namespace);
 
     // Parse tags and build events vec
     loop {
@@ -106,7 +128,7 @@ fn parse_tag_entries<'a>(body: impl BufRead, namespace: &String) -> Result<Vec<T
             }
             Ok(Event::End(elem)) if elem.starts_with(esi_remove.as_bytes()) => {
                 if !remove {
-                    let message = format!("Unexpected </{}:remove> closing tag", namespace);
+                    let message = format!("Unexpected </{}:remove> closing tag", configuration.namespace);
                     return Err(Error::from_message(&message));
                 }
 
@@ -142,11 +164,11 @@ fn parse_tag_entries<'a>(body: impl BufRead, namespace: &String) -> Result<Vec<T
 fn execute_tag_entries<'a>(
     entries: &'a Vec<TagEntry>,
     client: &impl ExecutionContext,
-    namespace: &String
+    configuration: &Configuration
 ) -> Result<HashMap<usize, Vec<u8>>, Error> {
     let mut map = HashMap::new();
 
-    let esi_include = format!("{}:include", namespace);
+    let esi_include = format!("{}:include", configuration.namespace);
 
     for (index, entry) in entries.iter().enumerate() {
         match &entry.esi_tag {
@@ -155,7 +177,7 @@ fn execute_tag_entries<'a>(
                     let src = match tag.get_param("src") {
                         Some(src) => src,
                         None => {
-                            let message = format!("No src parameter in <{}:include>", namespace);
+                            let message = format!("No src parameter in <{}:include>", configuration.namespace);
                             return Err(Error::from_message(&message))
                         }
                     };
@@ -194,23 +216,13 @@ fn execute_tag_entries<'a>(
 pub fn transform_esi_string(
     body: impl BufRead,
     client: &impl ExecutionContext,
-    namespace: String
-) -> Result<Vec<u8>, Error> {
-    transform_esi_string_with_namespace(body, client, String::from("esi"))
-}
-
-/// Processes a given ESI response body and returns the transformed body after all ESI instructions
-/// have been executed, taking an xml namespace as extra parameter.
-pub fn transform_esi_string_with_namespace(
-    body: impl BufRead,
-    client: &impl ExecutionContext,
-    namespace: String
+    configuration: &Configuration
 ) -> Result<Vec<u8>, Error> {
     // Parse tags
-    let events = parse_tag_entries(body, &namespace)?;
+    let events = parse_tag_entries(body, configuration)?;
 
     // Execute tags
-    let results = execute_tag_entries(&events, client, &namespace)?;
+    let results = execute_tag_entries(&events, client, configuration)?;
 
     // Build output XML
     let mut writer = Writer::new(Vec::new());
