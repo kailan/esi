@@ -112,18 +112,18 @@ fn parse_tag_entries<'a>(body: impl BufRead, configuration: &Configuration) -> R
     let mut events: Vec<TagEntry> = Vec::new();
     let mut remove = false;
 
-    let esi_remove = format!("{}:remove", configuration.namespace);
-    let esi_empty = format!("{}:", configuration.namespace);
+    let esi_remove = format!("{}:remove", configuration.namespace).into_bytes();
+    let esi_empty = format!("{}:", configuration.namespace).into_bytes();
 
     // Parse tags and build events vec
     loop {
         buf.clear();
         match reader.read_event(&mut buf) {
             // Handle <esi:remove> tags
-            Ok(Event::Start(elem)) if elem.starts_with(esi_remove.as_bytes()) => {
+            Ok(Event::Start(elem)) if elem.starts_with(&esi_remove) => {
                 remove = true;
             }
-            Ok(Event::End(elem)) if elem.starts_with(esi_remove.as_bytes()) => {
+            Ok(Event::End(elem)) if elem.starts_with(&esi_remove) => {
                 if !remove {
                     return Err(ExecutionError::UnexpectedClosingTag(String::from_utf8(elem.to_vec()).unwrap()));
                 }
@@ -133,7 +133,7 @@ fn parse_tag_entries<'a>(body: impl BufRead, configuration: &Configuration) -> R
             _ if remove => continue,
 
             // Parse empty ESI tags
-            Ok(Event::Empty(elem)) if elem.name().starts_with(esi_empty.as_bytes()) => {
+            Ok(Event::Empty(elem)) if elem.name().starts_with(&esi_empty) => {
                 events.push(TagEntry {
                     event: None,
                     esi_tag: Some(Tag {
@@ -164,12 +164,12 @@ fn execute_tag_entries(
 ) -> Result<HashMap<usize, Vec<u8>>> {
     let mut map = HashMap::new();
 
-    let esi_include = format!("{}:include", configuration.namespace);
+    let esi_include = format!("{}:include", configuration.namespace).into_bytes();
 
     for (index, entry) in entries.iter().enumerate() {
         match &entry.esi_tag {
             Some(tag) => {
-                if tag.name == esi_include.as_bytes() {
+                if tag.name == esi_include {
                     let src = match tag.get_param("src") {
                         Some(src) => src,
                         None => {
