@@ -7,3 +7,8 @@ language = "rust"
 manifest_version = 2
 name = "esi_fastly_example_app"
 service_id = ""
+
+[local_server]
+  [local_server.backends]
+    [local_server.backends."mock-s3.edgecompute.app"]
+      url = "https://mock-s3.edgecompute.app"

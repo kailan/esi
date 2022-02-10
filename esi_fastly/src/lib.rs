@@ -1,24 +1,39 @@
 use std::str::FromStr;
 
-use esi::{ExecutionContext, ExecutionError, Configuration, transform_esi_string};
-use fastly::{Request, Response, http::{Url, header}};
+use esi::{transform_esi_string, Configuration, ExecutionContext, ExecutionError, PendingRequest};
+use fastly::{
+    http::{header, Url},
+    Request, Response,
+};
 
 /// A request handler that, given a `fastly::Request`, will route requests to a backend matching
 /// the hostname of the request URL.
 pub struct FastlyRequestHandler {
-    original_req: Request
+    original_req: Request,
 }
 
 impl FastlyRequestHandler {
     fn from_request(req: Request) -> FastlyRequestHandler {
-        FastlyRequestHandler {
-            original_req: req
+        FastlyRequestHandler { original_req: req }
+    }
+}
+
+struct FastlyPendingRequest(fastly::http::request::PendingRequest);
+
+impl PendingRequest for FastlyPendingRequest {
+    fn wait(self: Box<Self>) -> esi::Result<esi::Response> {
+        match self.0.wait() {
+            Ok(mut resp) => Ok(esi::Response {
+                body: resp.take_body_bytes(),
+                status_code: resp.get_status().as_u16(),
+            }),
+            Err(err) => Err(ExecutionError::RequestError(err.to_string())),
         }
     }
 }
 
 impl ExecutionContext for FastlyRequestHandler {
-    fn send_request(&self, req: esi::Request) -> Result<esi::Response, ExecutionError> {
+    fn send_request(&self, req: esi::Request) -> Box<dyn PendingRequest> {
         println!("Sending request: {:?}", req);
 
         let mut bereq = self.original_req.clone_without_body().with_url(&req.url);
@@ -28,25 +43,14 @@ impl ExecutionContext for FastlyRequestHandler {
         let backend = parsed_url.host_str().unwrap();
         bereq.set_header(header::HOST, backend);
 
-        let mut beresp = match bereq.send(backend) {
+        let pending_request = match bereq.send_async(backend) {
             Ok(resp) => resp,
-            Err(_) => panic!("Error sending ESI include request to backend {}", backend)
+            Err(_) => panic!("Error sending ESI include request to backend {}", backend),
         };
 
-        println!("Received response: {}", beresp.get_status().as_u16());
+        let wrapped_request = FastlyPendingRequest(pending_request);
 
-        if beresp.get_status().as_u16() < 200 || beresp.get_status().as_u16() > 299 {
-            // TODO: handle bad status codes
-            return Err(ExecutionError::Unknown);
-        }
-
-        let resp = esi::Response {
-            body: beresp.take_body_bytes(),
-            status_code: beresp.get_status().as_u16()
-        };
-
-        println!("Response passed to esi processor");
-        Ok(resp)
+        Box::new(wrapped_request)
     }
 }
 
@@ -64,7 +68,11 @@ impl ExecutionContext for FastlyRequestHandler {
 ///     process_esi(req, beresp, &esi::Configuration::default());
 /// }
 /// ```
-pub fn process_esi(req: Request, mut response: Response, configuration: &Configuration) -> Result<Response, fastly::Error> {
+pub fn process_esi(
+    req: Request,
+    mut response: Response,
+    configuration: &Configuration,
+) -> Result<Response, fastly::Error> {
     let req_handler = FastlyRequestHandler::from_request(req);
 
     match transform_esi_string(response.take_body(), &req_handler, configuration) {
