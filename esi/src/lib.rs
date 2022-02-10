@@ -1,5 +1,5 @@
 use quick_xml::{
-    events::{BytesStart, BytesText, Event},
+    events::{BytesText, Event},
     Reader, Writer,
 };
 use std::{collections::HashMap, io::BufRead};
@@ -82,39 +82,13 @@ pub trait PendingRequest {
 
 /// Representation of an ESI tag from a source response.
 #[derive(Debug)]
-pub struct Tag {
-    name: Vec<u8>,                         // "include"
-    parameters: HashMap<Vec<u8>, Vec<u8>>, // src = "/a.html"
-}
-
-impl Tag {
-    fn get_param(&self, key: &str) -> Option<String> {
-        self.parameters
-            .get(key.as_bytes())
-            .map(|value| String::from_utf8(value.to_owned()).unwrap())
-    }
+pub enum Tag {
+    Include { src: String, alt: Option<String> },
 }
 
 pub struct TagEntry<'a> {
     event: Option<Event<'a>>,
     esi_tag: Option<Tag>,
-}
-
-fn parse_attributes(bytes: BytesStart) -> Result<HashMap<Vec<u8>, Vec<u8>>> {
-    let mut map: HashMap<Vec<u8>, Vec<u8>> = HashMap::new();
-
-    for entry in bytes.attributes().flatten() {
-        if map
-            .insert(entry.key.to_vec(), entry.value.to_vec())
-            .is_some()
-        {
-            return Err(ExecutionError::DuplicateTagAttribute(
-                String::from_utf8(entry.key.to_vec()).unwrap(),
-            ));
-        }
-    }
-
-    Ok(map)
 }
 
 fn parse_tag_entries<'a>(
@@ -127,8 +101,9 @@ fn parse_tag_entries<'a>(
     let mut events: Vec<TagEntry> = Vec::new();
     let mut remove = false;
 
+    let esi_include = format!("{}:include", configuration.namespace).into_bytes();
+    let esi_comment = format!("{}:comment", configuration.namespace).into_bytes();
     let esi_remove = format!("{}:remove", configuration.namespace).into_bytes();
-    let esi_empty = format!("{}:", configuration.namespace).into_bytes();
 
     // Parse tags and build events vec
     loop {
@@ -149,16 +124,32 @@ fn parse_tag_entries<'a>(
             }
             _ if remove => continue,
 
-            // Parse empty ESI tags
-            Ok(Event::Empty(elem)) if elem.name().starts_with(&esi_empty) => {
+            // Handle <esi:include> tags
+            Ok(Event::Empty(elem)) if elem.name().starts_with(&esi_include) => {
+                let mut attributes = elem.attributes().flatten();
+
+                let src = match attributes.find(|attr| attr.key == b"src") {
+                    Some(attr) => String::from_utf8(attr.value.to_vec()).unwrap(),
+                    None => {
+                        return Err(ExecutionError::MissingRequiredParameter(
+                            String::from_utf8(elem.name().to_vec()).unwrap(),
+                            "src".to_string(),
+                        ));
+                    }
+                };
+
+                let alt = attributes
+                    .find(|attr| attr.key == b"alt")
+                    .map(|attr| String::from_utf8(attr.value.to_vec()).unwrap());
+
                 events.push(TagEntry {
                     event: None,
-                    esi_tag: Some(Tag {
-                        name: elem.name().to_vec(),
-                        parameters: parse_attributes(elem)?,
-                    }),
+                    esi_tag: Some(Tag::Include { src, alt }),
                 });
-            }
+            },
+
+            // Ignore <esi:comment> tags
+            Ok(Event::Empty(elem)) if elem.name().starts_with(&esi_comment) => continue,
 
             Ok(Event::Eof) => break,
             Ok(e) => events.push(TagEntry {
@@ -176,55 +167,39 @@ fn parse_tag_entries<'a>(
 fn execute_tag_entries(
     entries: &[TagEntry],
     client: &impl ExecutionContext,
-    configuration: &Configuration,
+    _configuration: &Configuration,
 ) -> Result<HashMap<usize, Vec<u8>>> {
     let mut map = HashMap::new();
 
-    let esi_include = format!("{}:include", configuration.namespace).into_bytes();
-
     for (index, entry) in entries.iter().enumerate() {
         match &entry.esi_tag {
-            Some(tag) => {
-                if tag.name == esi_include {
-                    let src = match tag.get_param("src") {
-                        Some(src) => src,
-                        None => {
-                            return Err(ExecutionError::MissingRequiredParameter(
-                                String::from_utf8(tag.name.to_vec()).unwrap(),
-                                "src".to_string(),
-                            ));
-                        }
-                    };
+            Some(Tag::Include { src, alt }) => {
+                let pending_request = client.send_request(Request::from_url(src));
 
-                    let alt = tag.get_param("alt");
+                // TODO: async + onerror
+                match pending_request.wait() {
+                    Ok(resp) => {
+                        map.insert(index, resp.body);
+                    }
+                    Err(err) => match alt {
+                        Some(alt) => {
+                            let pending_request = client.send_request(Request::from_url(alt));
 
-                    let pending_request = client.send_request(Request::from_url(&src));
-
-                    // TODO: async + onerror
-                    match pending_request.wait() {
-                        Ok(resp) => {
-                            map.insert(index, resp.body);
-                        }
-                        Err(err) => match alt {
-                            Some(alt) => {
-                                let pending_request = client.send_request(Request::from_url(&alt));
-
-                                match pending_request.wait() {
-                                    Ok(resp) => {
-                                        map.insert(index, resp.body);
-                                    }
-                                    Err(err) => {
-                                        return Err(err);
-                                    }
+                            match pending_request.wait() {
+                                Ok(resp) => {
+                                    map.insert(index, resp.body);
+                                }
+                                Err(err) => {
+                                    return Err(err);
                                 }
                             }
-                            None => {
-                                return Err(err);
-                            }
-                        },
-                    }
+                        }
+                        None => {
+                            return Err(err);
+                        }
+                    },
                 }
-            }
+            },
             None => {}
         }
     }
