@@ -1,10 +1,14 @@
-use std::str::FromStr;
+use std::{str::FromStr, io::BufRead};
 
-use esi::{transform_esi_string, Configuration, ExecutionContext, ExecutionError, PendingRequest};
+use esi::{
+    Configuration, ExecutionContext, ExecutionError,
+    PendingRequest, Processor,
+};
 use fastly::{
     http::{header, Url},
     Request, Response,
 };
+use quick_xml::Writer;
 
 /// A request handler that, given a `fastly::Request`, will route requests to a backend matching
 /// the hostname of the request URL.
@@ -21,25 +25,22 @@ impl FastlyRequestHandler {
 struct FastlyPendingRequest(fastly::http::request::PendingRequest);
 
 impl PendingRequest for FastlyPendingRequest {
-    fn wait(self: Box<Self>) -> esi::Result<esi::Response> {
+    fn wait(self) -> esi::Result<Box<dyn BufRead>> {
         match self.0.wait() {
-            Ok(mut resp) => Ok(esi::Response {
-                body: resp.take_body_bytes(),
-                status_code: resp.get_status().as_u16(),
-            }),
+            Ok(mut resp) => Ok(Box::new(resp.take_body())),
             Err(err) => Err(ExecutionError::RequestError(err.to_string())),
         }
     }
 }
 
-impl ExecutionContext for FastlyRequestHandler {
-    fn send_request(&self, req: esi::Request) -> Box<dyn PendingRequest> {
+impl ExecutionContext<FastlyPendingRequest> for FastlyRequestHandler {
+    fn send_request(&self, req: &str) -> FastlyPendingRequest {
         println!("Sending request: {:?}", req);
 
-        let mut bereq = self.original_req.clone_without_body().with_url(&req.url);
+        let mut bereq = self.original_req.clone_without_body().with_url(req);
 
         // assume that backend name == host
-        let parsed_url = Url::from_str(&req.url).unwrap();
+        let parsed_url = Url::from_str(req).unwrap();
         let backend = parsed_url.host_str().unwrap();
         bereq.set_header(header::HOST, backend);
 
@@ -48,37 +49,31 @@ impl ExecutionContext for FastlyRequestHandler {
             Err(_) => panic!("Error sending ESI include request to backend {}", backend),
         };
 
-        let wrapped_request = FastlyPendingRequest(pending_request);
-
-        Box::new(wrapped_request)
+        FastlyPendingRequest(pending_request)
     }
 }
 
-/// Processes the body of a `fastly::Response` and returns an updated Response after executing
-/// all found ESI instructions.
-///
-/// # Examples
-/// ```no_run
-/// use fastly::{Error, Request, Response};
-/// use esi_fastly::process_esi;
-///
-/// #[fastly::main]
-/// fn main(req: Request) -> Result<Response, Error> {
-///     let beresp = req.send("backend")?;
-///     process_esi(req, beresp, &esi::Configuration::default());
-/// }
-/// ```
-pub fn process_esi(
+pub fn respond_esi_streaming(
     req: Request,
     mut response: Response,
     configuration: &Configuration,
-) -> Result<Response, fastly::Error> {
-    let req_handler = FastlyRequestHandler::from_request(req);
+) -> Result<(), fastly::Error> {
+    let client = FastlyRequestHandler::from_request(req);
 
-    match transform_esi_string(response.take_body(), &req_handler, configuration) {
-        Ok(body) => response.set_body(body),
-        Err(err) => return Err(fastly::Error::from(err)),
-    }
+    let processor = Processor {
+        configuration,
+    };
 
-    Ok(response)
+    // Take the body from the original ESI document
+    let document = response.take_body();
+
+    // Send the headers from the original response to the client
+    let response = response.stream_to_client();
+
+    let mut writer = Writer::new(response);
+
+    // Transform the body of the original response and stream it to the client
+    processor.execute_esi(&client, Box::new(document), &mut writer);
+
+    Ok(())
 }

@@ -12,3 +12,5 @@ service_id = ""
   [local_server.backends]
     [local_server.backends."mock-s3.edgecompute.app"]
       url = "https://mock-s3.edgecompute.app"
+    [local_server.backends."esi-test.edgecompute.app"]
+      url = "https://esi-test.edgecompute.app"

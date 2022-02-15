@@ -9,5 +9,7 @@ edition = "2018"
 readme = "../README.md"
 
 [dependencies]
+quick-xml = "^0.22"
+http-types = { version = "^2.12", default-features = false }
 fastly = "^0.8"
 esi = { path = "../esi", version = "0.2.0-pre" }
