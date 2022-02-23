@@ -6,11 +6,26 @@ description = ""
 language = "rust"
 manifest_version = 2
 name = "esi_fastly_example_app"
-service_id = ""
+service_id = "7Oyrwb6dUr5ISWCcDess2Z"
 
 [local_server]
+
   [local_server.backends]
-    [local_server.backends."mock-s3.edgecompute.app"]
-      url = "https://mock-s3.edgecompute.app"
+
     [local_server.backends."esi-test.edgecompute.app"]
       url = "https://esi-test.edgecompute.app"
+
+    [local_server.backends."mock-s3.edgecompute.app"]
+      url = "https://mock-s3.edgecompute.app"
+
+[setup]
+
+  [setup.backends]
+
+    [setup.backends."esi-test.edgecompute.app"]
+      address = "esi-test.edgecompute.app"
+      port = 443
+
+    [setup.backends."mock-s3.edgecompute.app"]
+      address = "mock-s3.edgecompute.app"
+      port = 443
