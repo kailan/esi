@@ -37,7 +37,7 @@ impl ExecutionContext<FastlyPendingRequest> for FastlyRequestHandler {
     fn send_request(&self, req: &str) -> FastlyPendingRequest {
         println!("Sending request: {:?}", req);
 
-        let mut bereq = self.original_req.clone_without_body().with_url(req);
+        let mut bereq = self.original_req.clone_without_body().with_url(req).with_pass(true);
 
         // assume that backend name == host
         let parsed_url = Url::from_str(req).unwrap();
