@@ -9,3 +9,4 @@ publish = false
 fastly = "^0.8"
 esi = { path = "../esi" }
 esi_fastly = { path = "../esi_fastly" }
+wasm-rs-async-executor = "0.9.0"

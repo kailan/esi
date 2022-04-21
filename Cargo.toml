@@ -3,5 +3,7 @@
 members = [
     "esi",
     "esi_fastly",
-    "esi_fastly_example_app"
+    "esi_fastly_example_app",
+    "esi_hyper",
+    "bench/esi_delay_tester",
 ]

@@ -1,30 +1,15 @@
-use quick_xml::{Reader, Writer};
-use std::{
-    io::{BufRead, Write},
-};
+mod parse;
+mod config;
+
+use crate::parse::{parse_tags, Tag, Event};
+pub use crate::config::Configuration;
+use futures::future::{BoxFuture, join};
+use futures::{AsyncBufRead, AsyncReadExt, FutureExt};
+use http_types::Response;
+use quick_xml::Reader;
+use std::io::Cursor;
+use tokio::sync::mpsc::channel;
 use thiserror::Error;
-
-pub struct Configuration {
-    namespace: String,
-}
-
-impl Default for Configuration {
-    fn default() -> Self {
-        Self {
-            namespace: String::from("esi"),
-        }
-    }
-}
-
-impl Configuration {
-    /// Sets an alternative ESI namespace, which is used to identify ESI instructions.
-    ///
-    /// For example, setting this to `test` would cause the processor to only match tags like `<test:include>`.
-    pub fn with_namespace(&mut self, namespace: impl Into<String>) -> &mut Self {
-        self.namespace = namespace.into();
-        self
-    }
-}
 
 #[derive(Error, Debug)]
 pub enum ExecutionError {
@@ -54,143 +39,72 @@ pub trait ExecutionContext<P: PendingRequest> {
 
 pub trait PendingRequest {
     // Block until the request is complete and return the result.
-    fn wait(self) -> Result<Box<dyn BufRead>>;
+    fn wait(self) -> Result<Response>;
 }
 
-/// Representation of an ESI tag from a source response.
-#[derive(Debug)]
-pub enum Tag {
-    Include { src: String, alt: Option<String> },
-}
+pub struct Processor;
 
-#[derive(Debug)]
-pub enum Event<'e> {
-    XML(quick_xml::events::Event<'e>),
-    ESI(Tag),
-}
+impl<'a> Processor {
+    pub fn execute_esi<
+        E: 'a +  ExecutionContext<P> + Clone + Sync + Send,
+        P: PendingRequest + Sync + Send,
+        B: 'a + AsyncBufRead + Unpin + Sync + Send,
+    >(
+        configuration: Configuration,
+        client: E,
+        mut document: B,
+        output: tokio::sync::mpsc::Sender<quick_xml::events::Event<'a>>,
+    ) -> BoxFuture<'a, ()> {
+        println!("esi execute_esi");
 
-pub trait OutputSink {
-    fn write(&mut self, buf: &[u8]);
-}
+        let (parse_tx, mut parse_rx) = channel(256);
+        let namespace = configuration.namespace.clone();
 
-impl<F: FnMut(&[u8])> OutputSink for F {
-    fn write(&mut self, buf: &[u8]) {
-        self(buf);
-    }
-}
+        println!("esi initiated channels");
 
-impl Write for dyn OutputSink {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.write(buf);
-        Ok(buf.len())
-    }
+        let parse_task = async move {
+            // TODO: stream
+            let mut contents = vec![];
+            document.read_to_end(&mut contents).await.unwrap();
+            let mut reader = Reader::from_reader(Cursor::new(contents));
 
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
+            parse_tags(&namespace, &mut reader, parse_tx).await
+        };
 
-pub struct Processor<'a> {
-    pub configuration: &'a Configuration,
-}
+        println!("esi parse task created");
 
-impl<'a> Processor<'a> {
-    pub fn execute_esi<E: ExecutionContext<P>, P: PendingRequest>(
-        &self,
-        client: &E,
-        document: Box<dyn BufRead>,
-        output: &mut Writer<impl Write>,
-    ) {
-        let mut reader = Reader::from_reader(document);
+        let exec_task = async move {
+            while let Some(event) = parse_rx.recv().await {
+                match event {
+                    Event::ESI(Tag::Include { src, alt: _ }) => {
+                        let client = client.clone();
+                        let configuration = configuration.clone();
 
-        self.parse_tags(&mut reader, |event| {
-            match event {
-                Event::ESI(Tag::Include { src, alt: _ }) => {
-                    let pending_request = client.send_request(&src);
+                        let pending_request = client.send_request(&src);
 
-                    // TODO: async + onerror
-                    match pending_request.wait() {
-                        Ok(resp) => {
-                            self.execute_esi(client, resp, output);
+                        match pending_request.wait() {
+                            Ok(mut resp) => {
+                                Processor::execute_esi(
+                                    configuration,
+                                    client,
+                                    resp.take_body().into_reader(),
+                                    output.clone(),
+                                )
+                                .await;
+                            }
+                            Err(err) => panic!("{:?}", err),
                         }
-                        Err(err) => panic!("{}", err),
+                    }
+                    Event::XML(event) => {
+                        println!("sending XML");
+                        output.send(event).await.unwrap();
                     }
                 }
-                Event::XML(event) => {
-                    output.write_event(event).unwrap();
-                    output.inner().flush().unwrap();
-                }
             }
-        })
-        .unwrap();
-    }
+        };
 
-    pub fn parse_tags<E: FnMut(Event)>(
-        &self,
-        reader: &mut Reader<Box<dyn BufRead>>,
-        mut events: E,
-    ) -> Result<()> {
-        let mut remove = false;
+        let tasks = join(parse_task, exec_task);
 
-        let esi_include = format!("{}:include", self.configuration.namespace).into_bytes();
-        let esi_comment = format!("{}:comment", self.configuration.namespace).into_bytes();
-        let esi_remove = format!("{}:remove", self.configuration.namespace).into_bytes();
-
-        let mut buffer = Vec::new();
-        // Parse tags and build events vec
-        loop {
-            match reader.read_event(&mut buffer) {
-                // Handle <esi:remove> tags
-                Ok(quick_xml::events::Event::Start(elem)) if elem.starts_with(&esi_remove) => {
-                    remove = true;
-                }
-                Ok(quick_xml::events::Event::End(elem)) if elem.starts_with(&esi_remove) => {
-                    if !remove {
-                        return Err(ExecutionError::UnexpectedClosingTag(
-                            String::from_utf8(elem.to_vec()).unwrap(),
-                        ));
-                    }
-
-                    remove = false;
-                }
-                _ if remove => continue,
-
-                // Handle <esi:include> tags
-                Ok(quick_xml::events::Event::Empty(elem))
-                    if elem.name().starts_with(&esi_include) =>
-                {
-                    let mut attributes = elem.attributes().flatten();
-
-                    let src = match attributes.find(|attr| attr.key == b"src") {
-                        Some(attr) => String::from_utf8(attr.value.to_vec()).unwrap(),
-                        None => {
-                            return Err(ExecutionError::MissingRequiredParameter(
-                                String::from_utf8(elem.name().to_vec()).unwrap(),
-                                "src".to_string(),
-                            ));
-                        }
-                    };
-
-                    let alt = attributes
-                        .find(|attr| attr.key == b"alt")
-                        .map(|attr| String::from_utf8(attr.value.to_vec()).unwrap());
-
-                    events(Event::ESI(Tag::Include { src, alt }));
-                }
-
-                // Ignore <esi:comment> tags
-                Ok(quick_xml::events::Event::Empty(elem))
-                    if elem.name().starts_with(&esi_comment) =>
-                {
-                    continue
-                }
-
-                Ok(quick_xml::events::Event::Eof) => break,
-                Ok(e) => events(Event::XML(e.into_owned())),
-                _ => {}
-            }
-        }
-
-        Ok(())
+        tasks.map(|_| ()).boxed()
     }
 }
