@@ -1,7 +1,6 @@
 use crate::{ExecutionError, Result};
-use quick_xml::Reader;
+use quick_xml::{Reader};
 use std::io::BufRead;
-use tokio::sync::mpsc::Sender;
 
 /// Representation of an ESI tag from a source response.
 #[derive(Debug)]
@@ -15,13 +14,13 @@ pub enum Event<'e> {
     ESI(Tag),
 }
 
-pub async fn parse_tags<'a, R>(
+pub fn parse_tags<'a, R>(
     namespace: &str,
     reader: &mut Reader<R>,
-    events: Sender<Event<'a>>,
+    callback: &mut dyn FnMut(Event<'a>) -> Result<()>,
 ) -> Result<()>
 where
-    R: BufRead,
+    R: BufRead
 {
     println!("esi parsing tags");
 
@@ -68,7 +67,7 @@ where
                     .find(|attr| attr.key == b"alt")
                     .map(|attr| String::from_utf8(attr.value.to_vec()).unwrap());
 
-                events.send(Event::ESI(Tag::Include { src, alt })).await.unwrap();
+                callback(Event::ESI(Tag::Include { src, alt }))?;
             }
 
             // Ignore <esi:comment> tags
@@ -77,7 +76,7 @@ where
             }
 
             Ok(quick_xml::events::Event::Eof) => break,
-            Ok(e) => events.send(Event::XML(e.into_owned())).await.unwrap(),
+            Ok(e) => callback(Event::XML(e.into_owned()))?,
             _ => {}
         }
     }

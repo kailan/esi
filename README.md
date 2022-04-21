@@ -1,6 +1,6 @@
 # esi
 
-A barebones Rust implementation of Edge Side Includes. Compatible with Fastly Compute@Edge via the [`esi_fastly`](https://docs.rs/esi_fastly) crate.
+A barebones Rust implementation of Edge Side Includes designed for Fastly Compute@Edge.
 
 The goal is to fully implement the [ESI Language Specification 1.0](https://www.w3.org/TR/esi-lang/).
 

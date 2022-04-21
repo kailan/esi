@@ -5,7 +5,7 @@ authors = ["kailan@enviark.com"]
 description = ""
 language = "rust"
 manifest_version = 2
-name = "esi_fastly_example_app"
+name = "esi_example_app"
 service_id = "7Oyrwb6dUr5ISWCcDess2Z"
 
 [local_server]
@@ -17,6 +17,12 @@ service_id = "7Oyrwb6dUr5ISWCcDess2Z"
 
     [local_server.backends."mock-s3.edgecompute.app"]
       url = "https://mock-s3.edgecompute.app"
+
+    [local_server.backends."127.0.0.1"]
+      url = "http://127.0.0.1"
+
+    [local_server.backends."httpbin.org"]
+      url = "http://httpbin.org"
 
 [setup]
 
