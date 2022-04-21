@@ -3,7 +3,7 @@ mod config;
 
 use std::io::Write;
 use crate::parse::{parse_tags, Tag, Event};
-pub use crate::config::Configuration;
+pub use crate::config::{Configuration, BackendConfiguration};
 use quick_xml::{Reader, Writer};
 use fastly::{Body, Request, Response};
 use fastly::http::body::StreamingBody;
@@ -60,9 +60,15 @@ impl Processor {
         let mut xml_writer = Writer::new(output);
 
         // Parse the ESI document
-        self.execute_esi_fragment(original_request, xml_reader, &mut xml_writer)?;
-
-        Ok(())
+        match self.execute_esi_fragment(original_request, xml_reader, &mut xml_writer) {
+            Ok(_) => Ok(()),
+            Err(err) => {
+                error!("error executing ESI: {:?}", err);
+                xml_writer.write(b"\nAn error occurred while constructing this document.\n")?;
+                xml_writer.inner().flush().expect("failed to flush error message");
+                Err(err)
+            }
+        }
     }
 
     pub fn execute_esi_fragment(
@@ -74,7 +80,7 @@ impl Processor {
         // Parse the ESI fragment
         parse_tags(&self.configuration.namespace, &mut xml_reader, &mut |event| {
             match event {
-                Event::ESI(Tag::Include { src, alt }) => {
+                Event::ESI(Tag::Include { src, alt, continue_on_error }) => {
                     let resp = match self.send_esi_fragment_request(&original_request, &src) {
                         Ok(resp) => Some(resp),
                         Err(err) => {
@@ -85,12 +91,20 @@ impl Processor {
                                     Ok(resp) => Some(resp),
                                     Err(err) => {
                                         debug!("Alt request to {} failed: {:?}", alt, err);
-                                        None
+                                        if continue_on_error {
+                                            None
+                                        } else {
+                                            return Err(err);
+                                        }
                                     }
                                 }
                             } else {
                                 error!("Fragment request failed with no `alt` available");
-                                None
+                                if continue_on_error {
+                                    None
+                                } else {
+                                    return Err(err);
+                                }
                             }
                         }
                     };
@@ -118,13 +132,26 @@ impl Processor {
         original_request: &Request,
         url: &str,
     ) -> Result<Response> {
-        debug!("Sending ESI fragment request: {}", url);
-
         let mut req = original_request.clone_without_body().with_url(url).with_pass(true);
-        let backend = req.get_url().host().expect("no host").to_string();
-        req.set_header(header::HOST, &backend);
 
-        let resp = req.send(backend)?;
+        let hostname = req.get_url().host().expect("no host").to_string();
+
+        let backend_config = self.configuration.backends.get(&hostname);
+
+        let backend_name = backend_config.and_then(|c| c.name.to_owned()).unwrap_or_else(|| hostname.clone());
+
+        req.set_header(header::HOST, &hostname);
+
+        if let Some(config) = backend_config {
+            if let Some(ttl) = config.ttl {
+                req.set_ttl(ttl);
+            }
+            req.set_pass(config.pass);
+        }
+
+        debug!("Sending ESI fragment request `{}` to backend `{}`", url, backend_name);
+
+        let resp = req.send(backend_name)?;
         if resp.get_status().is_success() {
             Ok(resp)
         } else {

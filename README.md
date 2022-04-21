@@ -9,7 +9,7 @@ implementation, capable of request and response streaming. The API will likely c
 
 ## Supported Tags
 
-- `<esi:include>` (+ `alt`)
+- `<esi:include>` (+ `alt`, `onerror="continue"`)
 - `<esi:comment>`
 - `<esi:remove>`
 

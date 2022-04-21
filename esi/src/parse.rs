@@ -1,11 +1,12 @@
 use crate::{ExecutionError, Result};
 use quick_xml::{Reader};
 use std::io::BufRead;
+use log::debug;
 
 /// Representation of an ESI tag from a source response.
 #[derive(Debug)]
 pub enum Tag {
-    Include { src: String, alt: Option<String> },
+    Include { src: String, alt: Option<String>, continue_on_error: bool },
 }
 
 #[derive(Debug)]
@@ -22,7 +23,7 @@ pub fn parse_tags<'a, R>(
 where
     R: BufRead
 {
-    println!("esi parsing tags");
+    debug!("Parsing document...");
 
     let mut remove = false;
 
@@ -67,7 +68,10 @@ where
                     .find(|attr| attr.key == b"alt")
                     .map(|attr| String::from_utf8(attr.value.to_vec()).unwrap());
 
-                callback(Event::ESI(Tag::Include { src, alt }))?;
+                let continue_on_error = attributes.find(|attr| attr.key == b"onerror")
+                    .map(|attr| &attr.value.to_vec() == b"continue") == Some(true);
+
+                callback(Event::ESI(Tag::Include { src, alt, continue_on_error }))?;
             }
 
             // Ignore <esi:comment> tags
@@ -80,8 +84,6 @@ where
             _ => {}
         }
     }
-
-    println!("esi tag parsing complete");
 
     Ok(())
 }

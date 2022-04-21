@@ -21,9 +21,6 @@ service_id = "7Oyrwb6dUr5ISWCcDess2Z"
     [local_server.backends."127.0.0.1"]
       url = "http://127.0.0.1"
 
-    [local_server.backends."httpbin.org"]
-      url = "http://httpbin.org"
-
 [setup]
 
   [setup.backends]
