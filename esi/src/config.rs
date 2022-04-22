@@ -3,7 +3,7 @@ use std::collections::HashMap;
 #[derive(Clone, Debug)]
 pub struct Configuration {
     pub namespace: String,
-    pub backends: HashMap<String, BackendConfiguration>
+    pub backends: HashMap<String, BackendConfiguration>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -17,7 +17,7 @@ impl Default for Configuration {
     fn default() -> Self {
         Self {
             namespace: String::from("esi"),
-            backends: HashMap::new()
+            backends: HashMap::new(),
         }
     }
 }
@@ -32,15 +32,22 @@ impl Configuration {
     }
 
     /// Configures a backend to use for requests to the given hostname.
-    pub fn with_backend_override(mut self, host: impl Into<String>, backend: impl Into<String>) -> Self {
+    pub fn with_backend_override(
+        mut self,
+        host: impl Into<String>,
+        backend: impl Into<String>,
+    ) -> Self {
         let host = host.into();
         if let Some(config) = self.backends.get_mut(&host) {
             config.name = Some(backend.into());
         } else {
-            self.backends.insert(host, BackendConfiguration {
-                name: Some(backend.into()),
-                ..Default::default()
-            });
+            self.backends.insert(
+                host,
+                BackendConfiguration {
+                    name: Some(backend.into()),
+                    ..Default::default()
+                },
+            );
         }
         self
     }

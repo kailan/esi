@@ -3,10 +3,7 @@
 
 <body>
   <h1>ESI demo</h1>
-  <local:include src="https://mock-s3.edgecompute.app/404.html" />
-  <local:remove><h1>remove me</h1></local:remove>
-  <local:comment text="comment"/>
-  <esi:include src="https://esi-test.edgecompute.app/?delay=250&depth=3" />
+  <esi:include src="https://esi-test.edgecompute.app/?delay=250&depth=3">this should be removed</esi:include>
 </body>
 
 </html>
